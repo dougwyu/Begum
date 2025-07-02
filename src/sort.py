@@ -598,11 +598,11 @@ class sample_sorter():
                 self.logger.debug("RT: " + str(rstart) + " " + rtag)
                 self.logger.debug("match: " + str(match_type))
             elif (self.allowMultiPrims and match_type == 9) or match_type == 4:
-                ftag = str(seq_rc)[0:rstart]
-                rtag = str(seq)[0:fstart]
-                amplicon = str(seq_rc)[rend:(len(seq)-fend)]
-                self.logger.debug("FT: " + str(rstart) + " " + ftag)
-                self.logger.debug("RT: " + str(fstart) + " " + rtag)
+                ftag = str(seq_rc)[0:fstart]
+                rtag = str(seq)[0:rstart]
+                amplicon = str(seq_rc)[fend:(len(seq)-rend)]
+                self.logger.debug("FT: " + str(fstart) + " " + ftag)
+                self.logger.debug("RT: " + str(rstart) + " " + rtag)
                 self.logger.debug("match: " + str(match_type))
             else:
                 continue
