@@ -126,6 +126,50 @@ pub fn read_sample_info_file(path: &str) -> Result<SampleInfo> {
     Ok(info)
 }
 
+/// Find primer positions in two reads.
+/// For single-end: pass (seq, RC(seq)). For paired-end: pass (read1, read2).
+/// Returns (fstart, fend, rstart, rend, match_type).
+/// match_type: 0=none, 1=F-R, 2=F-noR, 3=noF-R, 4=R-F, 5=R-noF, 6=noR-F, 8=F-R-multi, 9=R-F-multi
+pub fn find_primer_pos(
+    read1: &[u8],
+    read2: &[u8],
+    fwd_primer: &[u8],
+    rev_primer: &[u8],
+    max_mismatches: usize,
+) -> (i64, i64, i64, i64, u8) {
+    use crate::dna;
+
+    // Pass 1: F in read1 (first match), R in read2 (last match)
+    let (fs, fe, nf) = dna::find_primer_first(fwd_primer, read1, max_mismatches);
+    let (rs, re, nr) = dna::find_primer_last(rev_primer, read2, max_mismatches);
+
+    if fs != -1 || rs != -1 {
+        let mt = if fs != -1 && rs != -1 {
+            if nf > 1 || nr > 1 { 8 } else { 1 }
+        } else if fs != -1 {
+            2
+        } else {
+            3
+        };
+        return (fs, fe, rs, re, mt);
+    }
+
+    // Pass 2: R in read1 (first match), F in read2 (last match)
+    let (rs2, re2, nr2) = dna::find_primer_first(rev_primer, read1, max_mismatches);
+    let (fs2, fe2, nf2) = dna::find_primer_last(fwd_primer, read2, max_mismatches);
+
+    let mt = if fs2 != -1 && rs2 != -1 {
+        if nf2 > 1 || nr2 > 1 { 9 } else { 4 }
+    } else if rs2 != -1 {
+        5
+    } else if fs2 != -1 {
+        6
+    } else {
+        0
+    };
+    (fs2, fe2, rs2, re2, mt)
+}
+
 pub fn run(_args: SortArgs) -> Result<()> {
     todo!("sort not yet implemented")
 }
@@ -228,5 +272,63 @@ mod tests {
         let eb = &info["Pool1"][&("tag3".to_string(), "tag4".to_string())];
         assert_eq!(ea.replicate, 1); // SampleA first occurrence
         assert_eq!(eb.replicate, 1); // SampleB first occurrence
+    }
+
+    // ── find_primer_pos tests ─────────────────────────────────────────────
+
+    #[test]
+    fn test_find_primer_pos_fr_match() {
+        // Read: [tag1=AACCGGT][fwd=GCATGC][amplicon][rc_rev=CTGACT][rc_tag2=TGGCCAA]
+        // seq    = AACCGGT GCATGC AAATTTGGGCCC CTGACT TGGCCAA
+        // seq_rc = TTGGCCAA GTCAG GGGCCCAAATTT GCATGC ACCGGTT
+        // (we only need fwd_primer found in seq, rev_primer found in seq_rc)
+        let fwd = b"GCATGC";
+        let rev = b"AGTCAG";
+        let seq:    &[u8] = b"AACCGGTGCATGCAAATTTGGGCCCCTGACTTGGCCAA";
+        // rc_rev = CTGACT, rc_tag2 = TGGCCAA
+        // For seq_rc we need AGTCAG to appear — it appears in the RC of seq
+        // RC of seq: TTGGCCAAGTCAGGGGCCCAAATTTGCATGCACCGGTT
+        let seq_rc: &[u8] = b"TTGGCCAAGTCAGGGGCCCAAATTTGCATGCACCGGTT";
+        let (fs, fe, rs, re, mt) = find_primer_pos(seq, seq_rc, fwd, rev, 0);
+        assert_eq!(mt, 1, "should be F-R match type 1");
+        assert_eq!(fs, 7,  "fwd primer starts at pos 7 (after 7-char tag)");
+        assert_eq!(fe, 13, "fwd primer ends at pos 13");
+        assert!(rs >= 0,   "rev primer found in seq_rc");
+        assert!(re > rs,   "rev primer end > start");
+    }
+
+    #[test]
+    fn test_find_primer_pos_no_match() {
+        let fwd = b"GCATGC";
+        let rev = b"AGTCAG";
+        let seq:    &[u8] = b"AAAAAAAAAAAAAAAAAAA";
+        let seq_rc: &[u8] = b"TTTTTTTTTTTTTTTTTTT";
+        let (_fs, _fe, _rs, _re, mt) = find_primer_pos(seq, seq_rc, fwd, rev, 0);
+        assert_eq!(mt, 0, "should be no match");
+    }
+
+    #[test]
+    fn test_find_primer_pos_f_only() {
+        // F primer found in read1 but R not found in read2
+        let fwd = b"GCATGC";
+        let rev = b"AGTCAG";
+        let read1: &[u8] = b"AACCGGTGCATGCAAATTT";  // has fwd
+        let read2: &[u8] = b"TTTTTTTTTTTTTTTTTTT";  // no rev
+        let (_fs, _fe, _rs, _re, mt) = find_primer_pos(read1, read2, fwd, rev, 0);
+        assert_eq!(mt, 2, "F found, R not found = type 2");
+    }
+
+    #[test]
+    fn test_find_primer_pos_rf_match() {
+        // R primer in read1, F primer in read2 (reverse orientation, type 4)
+        let fwd = b"GCATGC";
+        let rev = b"AGTCAG";
+        let read1: &[u8] = b"AACCGGTAGTCAGAAATTT";  // has rev primer
+        let read2: &[u8] = b"TTGGCCAGCATGCAAATTT"; // has fwd primer (GCATGC at pos 7... wait)
+        // read2 needs fwd at end (find_last_match). Let's put fwd at the end.
+        // read2 = TTGGCCA + GCATGC + ...  => find_last finds it
+        let read2b: &[u8] = b"TTGGCCAGCATGCZZZ";
+        let (_fs, _fe, _rs, _re, mt) = find_primer_pos(read1, read2b, fwd, rev, 0);
+        assert_eq!(mt, 4, "R in read1, F in read2 = type 4");
     }
 }
