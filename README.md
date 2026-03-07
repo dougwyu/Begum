@@ -59,6 +59,42 @@ begum filter \
   -d out/ -o filtered
 ```
 
+## Development history
+
+Begum was originally written in Python 2.  [Claude Code](https://claude.ai/code)
+was used to modernise and extend the codebase across several sessions:
+
+1. **Python 2 → Python 3 port.**  Three compatibility issues were fixed:
+   the `version=` keyword removed from `argparse.ArgumentParser` in Python 3;
+   `Bio.Alphabet` and its IUPAC classes removed in Biopython ≥ 1.78; and
+   `gzip.open()` returning bytes rather than text in Python 3.
+
+2. **End-to-end tests.**  A Python test suite (`test/run_test.py`) was written
+   covering single-end and paired-end sort and filter, with synthetic gzipped
+   FASTQ inputs generated at runtime.
+
+3. **Rust rewrite.**  Claude Code wrote an implementation plan
+   (`docs/plans/2026-03-06-rust-port.md`) then executed it using its
+   subagent-driven development workflow — a fresh subagent per task with
+   spec-compliance and code-quality review after each.  The result is
+   `begum-rs/`: a full reimplementation using
+   [needletail](https://github.com/onecodex/needletail) for FASTQ parsing,
+   [clap](https://github.com/clap-rs/clap) for the CLI, and a sliding-window
+   IUPAC primer matcher in place of the Python `regex` fuzzy-match approach.
+   The Rust version is ~40× faster than the Python version on a 100,000-read
+   dataset.
+
+4. **Tutorial and dataset.**  A 100,000-read synthetic dataset
+   (`test/generate_complex_dataset.py`) was generated to demonstrate every
+   sort outcome type (C/B/F/R/N, IUPAC primer matching, reverse-orientation
+   reads) and every filter outcome (pass, fail propPCRs, fail minOccurrence,
+   fail minLength).
+
+5. **Repository cleanup.**  The repo was restructured to its current
+   three-directory layout (`begum/`, `begum-rs/`, `test/`), a root
+   `.gitignore` was added, and a pre-existing bug in the Python `filter`
+   default for `--minLength` was fixed.
+
 ## Documentation
 
 See `test/tutorial/README.md` for a full walkthrough covering all input file
