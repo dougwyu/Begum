@@ -80,6 +80,7 @@ dependencies = [
  "anyhow",
  "clap",
  "env_logger",
+ "flate2",
  "indexmap",
  "log",
  "needletail",

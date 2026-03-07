@@ -1,4 +1,5 @@
 use begum::{filter, sort, SortArgs};
+use flate2::{write::GzEncoder, Compression};
 use std::{fs, io::Write, path::PathBuf};
 use tempfile::tempdir;
 
@@ -22,11 +23,12 @@ fn make_read(fwd_tag: &[u8], rev_tag: &[u8], fwd_primer: &[u8], rev_primer: &[u8
 }
 
 fn write_fastq(path: &PathBuf, reads: &[Vec<u8>]) {
-    let mut f = fs::File::create(path).unwrap();
+    let f = fs::File::create(path).unwrap();
+    let mut gz = GzEncoder::new(f, Compression::default());
     for (i, seq) in reads.iter().enumerate() {
         let qual = "I".repeat(seq.len());
         writeln!(
-            f,
+            gz,
             "@read{}\n{}\n+\n{}",
             i + 1,
             std::str::from_utf8(seq).unwrap(),
@@ -34,6 +36,7 @@ fn write_fastq(path: &PathBuf, reads: &[Vec<u8>]) {
         )
         .unwrap();
     }
+    gz.finish().unwrap();
 }
 
 #[test]
@@ -56,11 +59,11 @@ fn test_sort_and_filter_end_to_end() {
         make_read(tag1, tag2, fwd_primer, rev_primer, amp_shared),
         make_read(tag1, tag2, fwd_primer, rev_primer, amp_pool1_only),
     ];
-    write_fastq(&d.join("reads_pool1.fastq"), &pool1_reads);
+    write_fastq(&d.join("reads_pool1.fastq.gz"), &pool1_reads);
 
     // Pool2: 1x shared only
     let pool2_reads = vec![make_read(tag3, tag4, fwd_primer, rev_primer, amp_shared)];
-    write_fastq(&d.join("reads_pool2.fastq"), &pool2_reads);
+    write_fastq(&d.join("reads_pool2.fastq.gz"), &pool2_reads);
 
     // Write input files
     fs::write(d.join("primers.txt"), "GCATGC AGTCAG\n").unwrap();
@@ -78,8 +81,8 @@ fn test_sort_and_filter_end_to_end() {
         d.join("pools.txt"),
         format!(
             "Pool1 {}\nPool2 {}\n",
-            d.join("reads_pool1.fastq").display(),
-            d.join("reads_pool2.fastq").display()
+            d.join("reads_pool1.fastq.gz").display(),
+            d.join("reads_pool2.fastq.gz").display()
         ),
     )
     .unwrap();

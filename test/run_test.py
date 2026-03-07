@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end test for Begum sort and filter."""
 
+import gzip
 import sys
 import subprocess
 from pathlib import Path
@@ -31,7 +32,7 @@ def make_read(fwd_tag, rev_tag, fwd_primer, rev_primer, amplicon):
 
 
 def write_fastq(path, reads):
-    with open(path, "w") as f:
+    with gzip.open(path, "wt") as f:
         for i, seq in enumerate(reads, 1):
             f.write(f"@read{i}\n{seq}\n+\n{'I' * len(seq)}\n")
 
@@ -64,13 +65,13 @@ pool1_reads = [
     make_read(TAG1, TAG2, FWD_PRIMER, REV_PRIMER, AMP_SHARED),
     make_read(TAG1, TAG2, FWD_PRIMER, REV_PRIMER, AMP_POOL1_ONLY),
 ]
-write_fastq(TEST_DIR / "reads_pool1.fastq", pool1_reads)
+write_fastq(TEST_DIR / "reads_pool1.fastq.gz", pool1_reads)
 
 # Pool2: 1x shared amplicon only
 pool2_reads = [
     make_read(TAG3, TAG4, FWD_PRIMER, REV_PRIMER, AMP_SHARED),
 ]
-write_fastq(TEST_DIR / "reads_pool2.fastq", pool2_reads)
+write_fastq(TEST_DIR / "reads_pool2.fastq.gz", pool2_reads)
 
 (TEST_DIR / "primers.txt").write_text(f"{FWD_PRIMER} {REV_PRIMER}\n")
 (TEST_DIR / "tags.txt").write_text(
@@ -81,8 +82,8 @@ write_fastq(TEST_DIR / "reads_pool2.fastq", pool2_reads)
     "Sample1 tag3 tag4 Pool2\n"
 )
 (TEST_DIR / "pools.txt").write_text(
-    f"Pool1 {TEST_DIR}/reads_pool1.fastq\n"
-    f"Pool2 {TEST_DIR}/reads_pool2.fastq\n"
+    f"Pool1 {TEST_DIR}/reads_pool1.fastq.gz\n"
+    f"Pool2 {TEST_DIR}/reads_pool2.fastq.gz\n"
 )
 
 # ---------------------------------------------------------------------------
