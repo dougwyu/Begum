@@ -80,6 +80,24 @@ pub fn find_primer_last(
     }
 }
 
+/// Compare `tag` against the END of `read_region`.
+/// If tag is longer than read_region, returns tag.len() (sentinel = no match possible).
+/// Otherwise returns Hamming distance between tag and the last tag.len() bytes of read_region.
+/// Case-insensitive. No IUPAC ambiguity — tags are unambiguous DNA.
+/// Mirrors Python: find_hamming_distance(target_seq, source_seq, look_at_end=True)
+pub fn hamming_tag_distance(tag: &[u8], read_region: &[u8]) -> usize {
+    let tlen = tag.len();
+    let slen = read_region.len();
+    if tlen > slen {
+        return tlen;
+    }
+    let suffix = &read_region[slen - tlen..];
+    tag.iter()
+        .zip(suffix.iter())
+        .filter(|(&a, &b)| a.to_ascii_uppercase() != b.to_ascii_uppercase())
+        .count()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,5 +197,35 @@ mod tests {
         let (start, _end, count) = find_primer_first(b"GCATGCGCATGC", b"GCATGC", 0);
         assert_eq!(start, -1);
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_hamming_tag_exact_match() {
+        assert_eq!(hamming_tag_distance(b"AACCGGT", b"AACCGGT"), 0);
+    }
+
+    #[test]
+    fn test_hamming_tag_suffix_match() {
+        // tag is shorter than region — compare against end
+        // "AACCGGT" vs last 7 of "XXXAACCGGT" = 0
+        assert_eq!(hamming_tag_distance(b"AACCGGT", b"XXXAACCGGT"), 0);
+    }
+
+    #[test]
+    fn test_hamming_tag_too_long() {
+        // tag longer than source — return tag.len() as sentinel
+        assert_eq!(hamming_tag_distance(b"AACCGGT", b"AA"), 7);
+    }
+
+    #[test]
+    fn test_hamming_tag_one_mismatch() {
+        // last char differs
+        assert_eq!(hamming_tag_distance(b"AACCGGT", b"AACCGGG"), 1);
+    }
+
+    #[test]
+    fn test_hamming_tag_case_insensitive() {
+        assert_eq!(hamming_tag_distance(b"aaccggt", b"AACCGGT"), 0);
+        assert_eq!(hamming_tag_distance(b"AACCGGT", b"aaccggt"), 0);
     }
 }
