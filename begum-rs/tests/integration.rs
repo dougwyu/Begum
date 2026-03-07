@@ -142,3 +142,114 @@ fn test_sort_and_filter_end_to_end() {
         "pool1-only amplicon must be filtered out"
     );
 }
+
+#[test]
+fn test_sort_and_filter_paired_end() {
+    let dir = tempdir().unwrap();
+    let d = dir.path();
+
+    let fwd_primer = b"GCATGC";
+    let rev_primer = b"AGTCAG";
+    let tag1 = b"AACCGGT";
+    let tag2 = b"TTGGCCA";
+    let tag3 = b"CCGGAAT";
+    let tag4 = b"GGCCTTA";
+
+    // Paired-end: Read1 = fwd_tag + fwd_primer + amplicon_R1
+    //             Read2 = rev_tag + rev_primer + amplicon_R2
+    let amp_shared_r1: &[u8] = b"AAATTTGGG";
+    let amp_shared_r2: &[u8] = b"CCCTTTAGG";
+    let amp_pool1_r1:  &[u8] = b"GGGCCCAAA";
+    let amp_pool1_r2:  &[u8] = b"TTTGGGCCC";
+
+    let make_r1 = |tag: &[u8], amp: &[u8]| -> Vec<u8> { [tag, fwd_primer, amp].concat() };
+    let make_r2 = |tag: &[u8], amp: &[u8]| -> Vec<u8> { [tag, rev_primer, amp].concat() };
+
+    let pool1_r1 = vec![
+        make_r1(tag1, amp_shared_r1),
+        make_r1(tag1, amp_shared_r1),
+        make_r1(tag1, amp_pool1_r1),
+    ];
+    let pool1_r2 = vec![
+        make_r2(tag2, amp_shared_r2),
+        make_r2(tag2, amp_shared_r2),
+        make_r2(tag2, amp_pool1_r2),
+    ];
+    let pool2_r1 = vec![make_r1(tag3, amp_shared_r1)];
+    let pool2_r2 = vec![make_r2(tag4, amp_shared_r2)];
+
+    write_fastq(&d.join("pool1_R1.fastq.gz"), &pool1_r1);
+    write_fastq(&d.join("pool1_R2.fastq.gz"), &pool1_r2);
+    write_fastq(&d.join("pool2_R1.fastq.gz"), &pool2_r1);
+    write_fastq(&d.join("pool2_R2.fastq.gz"), &pool2_r2);
+
+    fs::write(d.join("primers.txt"), "GCATGC AGTCAG\n").unwrap();
+    fs::write(
+        d.join("tags.txt"),
+        "tag1 AACCGGT\ntag2 TTGGCCA\ntag3 CCGGAAT\ntag4 GGCCTTA\n",
+    ).unwrap();
+    fs::write(
+        d.join("samples.txt"),
+        "Sample1 tag1 tag2 Pool1\nSample1 tag3 tag4 Pool2\n",
+    ).unwrap();
+    fs::write(
+        d.join("pools.txt"),
+        format!(
+            "Pool1 {} {}\nPool2 {} {}\n",
+            d.join("pool1_R1.fastq.gz").display(),
+            d.join("pool1_R2.fastq.gz").display(),
+            d.join("pool2_R1.fastq.gz").display(),
+            d.join("pool2_R2.fastq.gz").display(),
+        ),
+    ).unwrap();
+
+    sort::run(SortArgs {
+        primers: Some(d.join("primers.txt").to_str().unwrap().to_string()),
+        fwd_primer: None,
+        rev_primer: None,
+        tags: d.join("tags.txt").to_str().unwrap().to_string(),
+        sample_info: d.join("samples.txt").to_str().unwrap().to_string(),
+        pool: d.join("pools.txt").to_str().unwrap().to_string(),
+        allow_multiple_primers: false,
+        primer_mismatches: 0,
+        tag_mismatches: 0,
+        output_directory: d.to_str().unwrap().to_string(),
+        output_prefix: "test_pe".to_string(),
+    }).unwrap();
+
+    // Verify Pool1 tagInfo has 6 columns (paired-end)
+    let p1 = fs::read_to_string(d.join("test_pe_Pool1.tagInfo")).unwrap();
+    let header_cols: Vec<&str> = p1.lines().next().unwrap().split('\t').collect();
+    assert_eq!(header_cols.len(), 6, "paired-end tagInfo must have 6 columns");
+
+    let p1_rows: Vec<Vec<&str>> = p1.lines().skip(1).map(|l| l.split('\t').collect()).collect();
+    let shared = p1_rows.iter().find(|r| r.get(2) == Some(&"AAATTTGGG")).unwrap();
+    assert_eq!(shared[3], "CCCTTTAGG", "shared R2 sequence");
+    assert_eq!(shared[4], "2",         "shared count=2");
+    assert_eq!(shared[5], "C",         "shared type=C");
+
+    let pool1_only = p1_rows.iter().find(|r| r.get(2) == Some(&"GGGCCCAAA")).unwrap();
+    assert_eq!(pool1_only[3], "TTTGGGCCC", "pool1-only R2 sequence");
+    assert_eq!(pool1_only[4], "1",         "pool1-only count=1");
+
+    filter::run_filter(
+        d.join("test_pe").to_str().unwrap(),
+        d.join("samples.txt").to_str().unwrap(),
+        1.0, 1, 5,
+        d.to_str().unwrap(),
+        "filtered_pe",
+    ).unwrap();
+
+    let fna = fs::read_to_string(d.join("filtered_pe.fna")).unwrap();
+    let seqs: Vec<&str> = fna.lines().filter(|l| !l.starts_with('>')).collect();
+    // Paired-end: 2 sequence lines per amplicon (read1 + read2)
+    assert_eq!(seqs.len(), 2, "shared amplicon produces 2 lines (R1 + R2)");
+    assert!(seqs.contains(&"AAATTTGGG"), "shared R1 in output");
+    assert!(seqs.contains(&"CCCTTTAGG"), "shared R2 in output");
+    assert!(!fna.contains("GGGCCCAAA"), "pool1-only R1 must be filtered");
+    assert!(!fna.contains("TTTGGGCCC"), "pool1-only R2 must be filtered");
+
+    let headers: Vec<&str> = fna.lines().filter(|l| l.starts_with('>')).collect();
+    assert!(headers.iter().any(|h| h.contains("read1")), "output has read1 header");
+    assert!(headers.iter().any(|h| h.contains("read2")), "output has read2 header");
+}

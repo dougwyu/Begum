@@ -18,6 +18,9 @@ test/primers.txt
 test/tags.txt
 test/samples.txt
 test/pools.txt
+test/pe_*.fastq.gz
+test/pe_*.txt
+test/out_pe/
 
 # macOS
 .DS_Store
