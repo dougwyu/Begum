@@ -640,9 +640,7 @@ mod tests {
         let fwd = b"GCATGC";
         let rev = b"AGTCAG";
         let read1: &[u8] = b"AACCGGTAGTCAGAAATTT";  // has rev primer
-        let read2: &[u8] = b"TTGGCCAGCATGCAAATTT"; // has fwd primer (GCATGC at pos 7... wait)
-        // read2 needs fwd at end (find_last_match). Let's put fwd at the end.
-        // read2 = TTGGCCA + GCATGC + ...  => find_last finds it
+        // read2 needs fwd at end (find_last_match)
         let read2b: &[u8] = b"TTGGCCAGCATGCZZZ";
         let (_fs, _fe, _rs, _re, mt) = find_primer_pos(read1, read2b, fwd, rev, 0);
         assert_eq!(mt, 4, "R in read1, F in read2 = type 4");
