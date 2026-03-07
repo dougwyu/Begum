@@ -374,8 +374,151 @@ pub fn process_paired_end(
     Ok(haps)
 }
 
-pub fn run(_args: SortArgs) -> Result<()> {
-    todo!("sort not yet implemented")
+pub fn write_tag_info(
+    haps: &Haps,
+    outprefix: &str,
+    pool_name: &str,
+    sample_info: &SampleInfo,
+    single_end: bool,
+) -> Result<()> {
+    use std::io::Write;
+    let path = format!("{}_{}.tagInfo", outprefix, pool_name);
+    let mut f = fs::File::create(&path)
+        .with_context(|| format!("Cannot create {}", path))?;
+
+    if single_end {
+        writeln!(f, "FTag\tRTag\tSeq\tCount\tType")?;
+    } else {
+        writeln!(f, "FTag\tRTag\tFSeq\tRSeq\tCount\tType")?;
+    }
+
+    // Collect pool tags and valid pairs
+    let pool_tags: std::collections::HashSet<String> = sample_info
+        .get(pool_name)
+        .map(|p| {
+            p.keys()
+                .flat_map(|(a, b)| [a.clone(), b.clone()])
+                .collect()
+        })
+        .unwrap_or_default();
+    let pool_pairs: Vec<(String, String)> = sample_info
+        .get(pool_name)
+        .map(|p| p.keys().cloned().collect())
+        .unwrap_or_default();
+
+    for ((ftag, rtag), seqs) in haps {
+        let ftag_in = pool_tags.contains(ftag);
+        let rtag_in = pool_tags.contains(rtag);
+        let tag_type = if ftag_in && rtag_in {
+            if pool_pairs.contains(&(ftag.clone(), rtag.clone())) {
+                "C"
+            } else {
+                "B"
+            }
+        } else if ftag_in {
+            "F"
+        } else if rtag_in {
+            "R"
+        } else {
+            "N"
+        };
+
+        for (seq, count) in seqs {
+            if single_end {
+                writeln!(f, "{}\t{}\t{}\t{}\t{}", ftag, rtag, seq, count, tag_type)?;
+            } else {
+                let parts: Vec<&str> = seq.splitn(2, '\t').collect();
+                writeln!(
+                    f,
+                    "{}\t{}\t{}\t{}\t{}\t{}",
+                    ftag,
+                    rtag,
+                    parts.first().copied().unwrap_or(""),
+                    parts.get(1).copied().unwrap_or(""),
+                    count,
+                    tag_type
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn run(args: SortArgs) -> Result<()> {
+    let tags = read_tag_file(&args.tags)?;
+
+    let (fwd_primer, rev_primer) = if let Some(pf) = &args.primers {
+        read_primer_file(pf)?
+    } else {
+        match (&args.fwd_primer, &args.rev_primer) {
+            (Some(f), Some(r)) => (
+                f.to_ascii_uppercase().into_bytes(),
+                r.to_ascii_uppercase().into_bytes(),
+            ),
+            _ => {
+                return Err(anyhow!(
+                    "Specify a primer file (-p) or both --p1 and --p2"
+                ))
+            }
+        }
+    };
+
+    let pools = read_pool_file(&args.pool)?;
+    let sample_info = read_sample_info_file(&args.sample_info)?;
+
+    let out_dir = args.output_directory.trim_end_matches('/');
+    let outprefix = if args.output_prefix.is_empty() {
+        out_dir.to_string()
+    } else {
+        format!("{}/{}", out_dir, args.output_prefix)
+    };
+
+    for (pool_name, pool) in &pools {
+        log::info!("Processing pool {}", pool_name);
+        let mut primer_counts = [0i64; 10];
+        let mut tag_counts = [0i64; 8];
+
+        let haps = if pool.read2.is_none() {
+            log::info!("Single-end mode for pool {}", pool_name);
+            process_single_end(
+                &pool.read1,
+                &fwd_primer,
+                &rev_primer,
+                &tags,
+                args.primer_mismatches,
+                args.tag_mismatches,
+                args.allow_multiple_primers,
+                &mut primer_counts,
+                &mut tag_counts,
+            )?
+        } else {
+            log::info!("Paired-end mode for pool {}", pool_name);
+            process_paired_end(
+                &pool.read1,
+                pool.read2.as_deref().unwrap(),
+                &fwd_primer,
+                &rev_primer,
+                &tags,
+                args.primer_mismatches,
+                args.tag_mismatches,
+                &mut primer_counts,
+                &mut tag_counts,
+            )?
+        };
+
+        let single_end = pool.read2.is_none();
+        write_tag_info(&haps, &outprefix, pool_name, &sample_info, single_end)?;
+
+        log::info!(
+            "Pool {} done. Primer match counts: {:?}",
+            pool_name,
+            primer_counts
+        );
+        log::info!("Tag match counts: {:?}", tag_counts);
+    }
+
+    log::info!("Sorting complete.");
+    Ok(())
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -644,5 +787,51 @@ mod tests {
         let read2b: &[u8] = b"TTGGCCAGCATGCZZZ";
         let (_fs, _fe, _rs, _re, mt) = find_primer_pos(read1, read2b, fwd, rev, 0);
         assert_eq!(mt, 4, "R in read1, F in read2 = type 4");
+    }
+
+    // ── write_tag_info tests ───────────────────────────────────────────────
+
+    #[test]
+    fn test_write_tag_info_single_end() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let prefix = dir.path().join("test").to_str().unwrap().to_string();
+
+        let mut haps: Haps = HashMap::new();
+        haps.entry(("tag1".to_string(), "tag2".to_string()))
+            .or_default()
+            .insert("AAATTTGGGCCC".to_string(), 2);
+        haps.entry(("tag1".to_string(), "tag2".to_string()))
+            .or_default()
+            .insert("GGGCCCAAATTT".to_string(), 1);
+        // unknown tag combo (both not in pool)
+        haps.entry(("tagX".to_string(), "tagY".to_string()))
+            .or_default()
+            .insert("CCCCCCCCCCCC".to_string(), 1);
+
+        let mut sample_info: SampleInfo = IndexMap::new();
+        sample_info
+            .entry("Pool1".to_string())
+            .or_default()
+            .insert(
+                ("tag1".to_string(), "tag2".to_string()),
+                SampleEntry { sample: "Sample1".to_string(), replicate: 1 },
+            );
+
+        write_tag_info(&haps, &prefix, "Pool1", &sample_info, true).unwrap();
+
+        let content = std::fs::read_to_string(format!("{}_Pool1.tagInfo", prefix)).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        // Header
+        assert_eq!(lines[0], "FTag\tRTag\tSeq\tCount\tType");
+        // tag1/tag2 rows should be type C
+        let c_rows: Vec<&&str> = lines.iter().filter(|l| l.ends_with("\tC")).collect();
+        assert_eq!(c_rows.len(), 2, "2 correct-combo rows");
+        // tagX/tagY row should be type N
+        let n_rows: Vec<&&str> = lines.iter().filter(|l| l.ends_with("\tN")).collect();
+        assert_eq!(n_rows.len(), 1, "1 neither-tag row");
+        // Specific count check
+        assert!(content.contains("tag1\ttag2\tAAATTTGGGCCC\t2\tC"));
+        assert!(content.contains("tag1\ttag2\tGGGCCCAAATTT\t1\tC"));
     }
 }
