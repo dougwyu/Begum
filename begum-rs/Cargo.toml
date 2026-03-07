@@ -7,6 +7,10 @@ edition = "2021"
 name = "begum"
 path = "src/main.rs"
 
+[lib]
+name = "begum"
+path = "src/lib.rs"
+
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
