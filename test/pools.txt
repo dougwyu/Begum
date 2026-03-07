@@ -1,1 +1,0 @@
-Pool1 /Users/douglasyu/Downloads/Cowork/Begum/test/reads.fastq

@@ -1,0 +1,4 @@
+Sample1 tag1 tag2 Pool1
+Sample1 tag3 tag4 Pool2
+Sample2 tag5 tag6 Pool1
+Sample2 tag7 tag8 Pool2

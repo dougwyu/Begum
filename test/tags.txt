@@ -1,2 +1,0 @@
-tag1 AACCGGT
-tag2 TTGGCCA

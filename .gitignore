@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Rust build artifacts (covered by begum-rs/.gitignore too)
+begum-rs/target/
+
+# Generated test outputs
+test/out/
+test/tutorial/out/
+test/tutorial/out_rust/
+
+# Runtime-generated test inputs (produced by run_test.py)
+test/reads_pool1.fastq
+test/reads_pool2.fastq
+test/primers.txt
+test/tags.txt
+test/samples.txt
+test/pools.txt
+
+# macOS
+.DS_Store

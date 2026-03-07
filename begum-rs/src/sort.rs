@@ -1,4 +1,4 @@
-use crate::SortArgs;
+use crate::args::SortArgs;
 use anyhow::{anyhow, Context, Result};
 use indexmap::IndexMap;
 use std::{collections::HashMap, fs};

@@ -1,4 +1,4 @@
-use crate::FilterArgs;
+use crate::args::FilterArgs;
 use anyhow::{Context, Result};
 use std::{collections::HashMap, fs, io::Write};
 
