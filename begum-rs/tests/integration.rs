@@ -1,4 +1,4 @@
-use begum::{filter, sort, FilterArgs, SortArgs};
+use begum::{filter, sort, SortArgs};
 use std::{fs, io::Write, path::PathBuf};
 use tempfile::tempdir;
 
@@ -108,6 +108,7 @@ fn test_sort_and_filter_end_to_end() {
     assert_eq!(shared_row[4], "C", "shared amplicon type=C in Pool1");
     let rare_row = p1_rows.iter().find(|r| r.get(2) == Some(&"GGGCCCAAATTT")).unwrap();
     assert_eq!(rare_row[3], "1", "pool1-only count=1");
+    assert_eq!(rare_row[4], "C", "pool1-only amplicon type=C in Pool1");
 
     // Verify Pool2 tagInfo
     let p2 = fs::read_to_string(d.join("test_Pool2.tagInfo")).unwrap();
