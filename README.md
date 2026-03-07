@@ -74,9 +74,11 @@ was used to modernise and extend the codebase across several sessions:
    FASTQ inputs generated at runtime.
 
 3. **Rust rewrite.**  Claude Code wrote an implementation plan
-   (`docs/plans/2026-03-06-rust-port.md`) then executed it using its
-   subagent-driven development workflow — a fresh subagent per task with
-   spec-compliance and code-quality review after each.  The result is
+   (`docs/plans/2026-03-06-rust-port.md`) then executed it using the
+   [Superpowers plugin](https://github.com/superpowers-sh/superpowers) for
+   Claude Code, specifically the `subagent-driven-development` skill — a
+   fresh subagent per task with spec-compliance and code-quality review after
+   each.  The result is
    `begum-rs/`: a full reimplementation using
    [needletail](https://github.com/onecodex/needletail) for FASTQ parsing,
    [clap](https://github.com/clap-rs/clap) for the CLI, and a sliding-window
