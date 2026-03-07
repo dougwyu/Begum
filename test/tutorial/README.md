@@ -138,21 +138,39 @@ Pool1 /data/pool1_R1.fastq.gz /data/pool1_R2.fastq.gz
 
 - All pools must be either all single-end or all paired-end.
 - Gzip compression is detected automatically from the `.gz` file extension.
+- Begum detects single-end vs paired-end solely from the number of columns
+  in `pools.txt` (2 = single-end, 3 = paired-end).
+
+**Merged paired-end reads** (produced by AdapterRemoval, FLASH, PANDA, etc.)
+are treated as single-end: supply one FASTQ per pool with two columns.  The
+merged read has the same structure as a single-end read:
+
+```
+[fwd_tag][fwd_primer]───── amplicon ─────[rc(rev_primer)][rc(rev_tag)]
+```
 
 ### FASTQ files
 
-Standard FASTQ format.  Reads must be pre-processed (adapter-trimmed,
-merged for paired-end if desired).  For single-end reads the expected
-structure per read is:
+Standard FASTQ format.  For single-end (including merged paired-end) reads,
+the expected structure is:
 
 ```
 [fwd_tag][fwd_primer][amplicon][rc(rev_primer)][rc(rev_tag)]
 ```
 
-Begum also handles reverse-orientation reads:
+Begum also handles reverse-orientation reads (e.g. some merging tools output
+reads in either orientation):
 
 ```
 [rev_tag][rev_primer][rc(amplicon)][rc(fwd_primer)][rc(fwd_tag)]
+```
+
+For unmerged paired-end reads the two files are sequenced from opposite ends
+of the fragment, so each read only contains one primer and one tag:
+
+```
+Read 1:  [fwd_tag][fwd_primer][amplicon_R1 →
+Read 2:  [rev_tag][rev_primer][amplicon_R2 →
 ```
 
 ---

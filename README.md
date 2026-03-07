@@ -9,6 +9,12 @@ replicates (**filter**).  It is available in two implementations:
 | Requirements | Python ≥ 3.8, Biopython ≥ 1.78, regex, textdistance | Rust stable (cargo) |
 | Input | plain or gzip FASTQ | plain or gzip FASTQ |
 | Paired-end | yes | yes |
+| Merged paired-end | yes (treated as single-end) | yes (treated as single-end) |
+
+**Merged paired-end reads** (produced by AdapterRemoval, FLASH, PANDA, etc.) are
+passed as single-end input — one FASTQ per pool, two columns in `pools.txt`.
+Begum distinguishes single-end from paired-end solely by the number of columns
+in `pools.txt`.
 
 ## Performance
 
