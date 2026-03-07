@@ -401,16 +401,13 @@ pub fn write_tag_info(
                 .collect()
         })
         .unwrap_or_default();
-    let pool_pairs: Vec<(String, String)> = sample_info
-        .get(pool_name)
-        .map(|p| p.keys().cloned().collect())
-        .unwrap_or_default();
+    let pool_map = sample_info.get(pool_name);
 
     for ((ftag, rtag), seqs) in haps {
         let ftag_in = pool_tags.contains(ftag);
         let rtag_in = pool_tags.contains(rtag);
         let tag_type = if ftag_in && rtag_in {
-            if pool_pairs.contains(&(ftag.clone(), rtag.clone())) {
+            if pool_map.map_or(false, |p| p.contains_key(&(ftag.clone(), rtag.clone()))) {
                 "C"
             } else {
                 "B"
