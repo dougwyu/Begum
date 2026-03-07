@@ -170,6 +170,210 @@ pub fn find_primer_pos(
     (fs2, fe2, rs2, re2, mt)
 }
 
+pub fn reverse_complement(seq: &[u8]) -> Vec<u8> {
+    seq.iter()
+        .rev()
+        .map(|&b| match b.to_ascii_uppercase() {
+            b'A' => b'T',
+            b'T' => b'A',
+            b'G' => b'C',
+            b'C' => b'G',
+            _ => b'N',
+        })
+        .collect()
+}
+
+pub fn find_best_tag_match(
+    tag_region: &[u8],
+    tags: &TagDict,
+    max_errors: usize,
+) -> Option<String> {
+    let mut best_name: Option<String> = None;
+    let mut best_dist = usize::MAX;
+    let mut num_matches = 0usize;
+
+    for (name, seq) in tags {
+        let dist = crate::dna::hamming_tag_distance(seq, tag_region);
+        if dist < best_dist {
+            best_dist = dist;
+            best_name = Some(name.clone());
+            num_matches = 1;
+        } else if dist == best_dist {
+            // Tie-break: longer tag wins (mirrors Python)
+            let best_len = best_name.as_ref().map(|n| tags[n].len()).unwrap_or(0);
+            if seq.len() > best_len {
+                best_name = Some(name.clone());
+                num_matches = 1;
+            } else if seq.len() == best_len {
+                num_matches += 1;
+            }
+        }
+    }
+
+    if best_dist > max_errors || num_matches > 1 {
+        return None;
+    }
+    best_name
+}
+
+pub fn process_single_end(
+    path: &str,
+    fwd_primer: &[u8],
+    rev_primer: &[u8],
+    tags: &TagDict,
+    primer_mismatches: usize,
+    tag_mismatches: usize,
+    allow_multi_primers: bool,
+    primer_counts: &mut [i64; 10],
+    tag_counts: &mut [i64; 8],
+) -> Result<Haps> {
+    let mut haps: Haps = HashMap::new();
+    let mut reader = needletail::parse_fastx_file(path)
+        .with_context(|| format!("Cannot open FASTQ: {}", path))?;
+
+    while let Some(rec) = reader.next() {
+        let rec = rec?;
+        let seq = rec.seq();
+        let seq_rc = reverse_complement(&seq);
+
+        let (fs, fe, rs, re, mt) =
+            find_primer_pos(&seq, &seq_rc, fwd_primer, rev_primer, primer_mismatches);
+        primer_counts[mt as usize] += 1;
+
+        let (ftag_str, rtag_str, amplicon) =
+            if (allow_multi_primers && mt == 8) || mt == 1 {
+                let fs = fs as usize;
+                let fe = fe as usize;
+                let rs = rs as usize;
+                let re = re as usize;
+                let seq_len = seq.len();
+                (
+                    String::from_utf8_lossy(&seq[..fs]).to_string(),
+                    String::from_utf8_lossy(&seq_rc[..rs]).to_string(),
+                    String::from_utf8_lossy(&seq[fe..seq_len - re]).to_string(),
+                )
+            } else if (allow_multi_primers && mt == 9) || mt == 4 {
+                let fs = fs as usize;
+                let fe = fe as usize;
+                let rs = rs as usize;
+                let re = re as usize;
+                let seq_len = seq.len();
+                (
+                    String::from_utf8_lossy(&seq_rc[..fs]).to_string(),
+                    String::from_utf8_lossy(&seq[..rs]).to_string(),
+                    String::from_utf8_lossy(&seq_rc[fe..seq_len - re]).to_string(),
+                )
+            } else {
+                continue;
+            };
+
+        if amplicon.is_empty() {
+            primer_counts[7] += 1;
+            continue;
+        }
+
+        let best_ftag = find_best_tag_match(ftag_str.as_bytes(), tags, tag_mismatches);
+        let best_rtag = find_best_tag_match(rtag_str.as_bytes(), tags, tag_mismatches);
+        let tag_type =
+            (best_ftag.is_none()) as usize + 2 * (best_rtag.is_none()) as usize;
+        let orient_offset = if mt == 4 { 4 } else { 0 };
+        tag_counts[orient_offset + tag_type] += 1;
+
+        if tag_type != 0 {
+            continue;
+        }
+
+        let tag_combo = (best_ftag.unwrap(), best_rtag.unwrap());
+        *haps
+            .entry(tag_combo)
+            .or_default()
+            .entry(amplicon)
+            .or_insert(0) += 1;
+    }
+    Ok(haps)
+}
+
+pub fn process_paired_end(
+    path1: &str,
+    path2: &str,
+    fwd_primer: &[u8],
+    rev_primer: &[u8],
+    tags: &TagDict,
+    primer_mismatches: usize,
+    tag_mismatches: usize,
+    primer_counts: &mut [i64; 10],
+    tag_counts: &mut [i64; 8],
+) -> Result<Haps> {
+    let mut haps: Haps = HashMap::new();
+    let mut r1 = needletail::parse_fastx_file(path1)
+        .with_context(|| format!("Cannot open {}", path1))?;
+    let mut r2 = needletail::parse_fastx_file(path2)
+        .with_context(|| format!("Cannot open {}", path2))?;
+
+    loop {
+        match (r1.next(), r2.next()) {
+            (Some(rec1), Some(rec2)) => {
+                let rec1 = rec1?;
+                let rec2 = rec2?;
+                let seq1 = rec1.seq();
+                let seq2 = rec2.seq();
+
+                let (fs, fe, rs, re, mt) = find_primer_pos(
+                    &seq1, &seq2, fwd_primer, rev_primer, primer_mismatches,
+                );
+                primer_counts[mt as usize] += 1;
+
+                let (ftag_str, rtag_str, amplicon) = if mt == 1 {
+                    (
+                        String::from_utf8_lossy(&seq1[..fs as usize]).to_string(),
+                        String::from_utf8_lossy(&seq2[..rs as usize]).to_string(),
+                        format!(
+                            "{}\t{}",
+                            String::from_utf8_lossy(&seq1[fe as usize..]),
+                            String::from_utf8_lossy(&seq2[re as usize..])
+                        ),
+                    )
+                } else if mt == 4 {
+                    (
+                        String::from_utf8_lossy(&seq2[..rs as usize]).to_string(),
+                        String::from_utf8_lossy(&seq1[..fs as usize]).to_string(),
+                        format!(
+                            "{}\t{}",
+                            String::from_utf8_lossy(&seq2[re as usize..]),
+                            String::from_utf8_lossy(&seq1[fe as usize..])
+                        ),
+                    )
+                } else {
+                    continue;
+                };
+
+                let best_ftag =
+                    find_best_tag_match(ftag_str.as_bytes(), tags, tag_mismatches);
+                let best_rtag =
+                    find_best_tag_match(rtag_str.as_bytes(), tags, tag_mismatches);
+                let tag_type =
+                    (best_ftag.is_none()) as usize + 2 * (best_rtag.is_none()) as usize;
+                let orient_offset = if mt == 4 { 4 } else { 0 };
+                tag_counts[orient_offset + tag_type] += 1;
+
+                if tag_type != 0 {
+                    continue;
+                }
+
+                let tag_combo = (best_ftag.unwrap(), best_rtag.unwrap());
+                *haps
+                    .entry(tag_combo)
+                    .or_default()
+                    .entry(amplicon)
+                    .or_insert(0) += 1;
+            }
+            (None, None) => break,
+            _ => return Err(anyhow!("Paired FASTQ files have different read counts")),
+        }
+    }
+    Ok(haps)
+}
+
 pub fn run(_args: SortArgs) -> Result<()> {
     todo!("sort not yet implemented")
 }
@@ -272,6 +476,118 @@ mod tests {
         let eb = &info["Pool1"][&("tag3".to_string(), "tag4".to_string())];
         assert_eq!(ea.replicate, 1); // SampleA first occurrence
         assert_eq!(eb.replicate, 1); // SampleB first occurrence
+    }
+
+    // ── reverse_complement tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_reverse_complement_basic() {
+        assert_eq!(reverse_complement(b"GCATGC"), b"GCATGC"); // palindrome
+        assert_eq!(reverse_complement(b"AACCGGT"), b"ACCGGTT");
+        assert_eq!(reverse_complement(b"AGTCAG"), b"CTGACT");
+    }
+
+    // ── find_best_tag_match tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_find_best_tag_match_exact() {
+        let mut tags = TagDict::new();
+        tags.insert("tag1".into(), b"AACCGGT".to_vec());
+        tags.insert("tag2".into(), b"TTGGCCA".to_vec());
+        assert_eq!(
+            find_best_tag_match(b"AACCGGT", &tags, 0),
+            Some("tag1".to_string())
+        );
+    }
+
+    #[test]
+    fn test_find_best_tag_match_suffix() {
+        // tag region may be longer than tag — compares against end
+        let mut tags = TagDict::new();
+        tags.insert("tag1".into(), b"AACCGGT".to_vec());
+        // "XXXAACCGGT" — last 7 chars match tag1
+        assert_eq!(
+            find_best_tag_match(b"XXXAACCGGT", &tags, 0),
+            Some("tag1".to_string())
+        );
+    }
+
+    #[test]
+    fn test_find_best_tag_match_no_match() {
+        let mut tags = TagDict::new();
+        tags.insert("tag1".into(), b"AACCGGT".to_vec());
+        assert_eq!(find_best_tag_match(b"TTTTTTT", &tags, 0), None);
+    }
+
+    #[test]
+    fn test_find_best_tag_match_within_errors() {
+        let mut tags = TagDict::new();
+        tags.insert("tag1".into(), b"AACCGGT".to_vec());
+        // 1 mismatch: AACCGGG vs AACCGGT
+        assert_eq!(
+            find_best_tag_match(b"AACCGGG", &tags, 1),
+            Some("tag1".to_string())
+        );
+        // same mismatch but errors=0 → no match
+        assert_eq!(find_best_tag_match(b"AACCGGG", &tags, 0), None);
+    }
+
+    // ── process_single_end tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_process_single_end_basic() {
+        // Construct read: tag1 + fwd_primer + amplicon + RC(rev_primer) + RC(tag2)
+        // tag1=AACCGGT, tag2=TTGGCCA, fwd=GCATGC, rev=AGTCAG
+        // RC(AGTCAG) = CTGACT, RC(TTGGCCA) = TGGCCAA
+        let seq = b"AACCGGTGCATGCAAATTTGGGCCCCTGACTTGGCCAA";
+        let qual = "I".repeat(seq.len());
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        writeln!(f, "@read1\n{}\n+\n{}", std::str::from_utf8(seq).unwrap(), qual).unwrap();
+        writeln!(f, "@read2\n{}\n+\n{}", std::str::from_utf8(seq).unwrap(), qual).unwrap();
+
+        let mut tags = TagDict::new();
+        tags.insert("tag1".into(), b"AACCGGT".to_vec());
+        tags.insert("tag2".into(), b"TTGGCCA".to_vec());
+
+        let mut primer_counts = [0i64; 10];
+        let mut tag_counts = [0i64; 8];
+
+        let haps = process_single_end(
+            f.path().to_str().unwrap(),
+            b"GCATGC", b"AGTCAG",
+            &tags, 0, 0, false,
+            &mut primer_counts, &mut tag_counts,
+        ).unwrap();
+
+        let key = ("tag1".to_string(), "tag2".to_string());
+        assert!(haps.contains_key(&key), "tag1/tag2 combination should be found");
+        assert_eq!(haps[&key]["AAATTTGGGCCC"], 2, "amplicon seen twice");
+        assert_eq!(primer_counts[1], 2, "2 F-R matches");
+        assert_eq!(tag_counts[0], 2, "2 both-tags-found");
+    }
+
+    #[test]
+    fn test_process_single_end_no_primer() {
+        let seq = b"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        let qual = "I".repeat(seq.len());
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        writeln!(f, "@read1\n{}\n+\n{}", std::str::from_utf8(seq).unwrap(), qual).unwrap();
+
+        let mut tags = TagDict::new();
+        tags.insert("tag1".into(), b"AACCGGT".to_vec());
+
+        let mut primer_counts = [0i64; 10];
+        let mut tag_counts = [0i64; 8];
+
+        let haps = process_single_end(
+            f.path().to_str().unwrap(),
+            b"GCATGC", b"AGTCAG",
+            &tags, 0, 0, false,
+            &mut primer_counts, &mut tag_counts,
+        ).unwrap();
+
+        assert!(haps.is_empty());
+        assert_eq!(primer_counts[0], 1, "1 no-match read");
     }
 
     // ── find_primer_pos tests ─────────────────────────────────────────────
