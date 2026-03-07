@@ -5,7 +5,6 @@ import gzip
 import sys
 import subprocess
 from pathlib import Path
-from Bio.Seq import Seq
 
 TEST_DIR = Path(__file__).parent.resolve()
 SRC_DIR = TEST_DIR.parent / "begum"
@@ -25,10 +24,13 @@ def check(name, condition, detail=""):
         failures.append(name)
 
 
+_COMP = str.maketrans("ACGTacgt", "TGCAtgca")
+
+def rc(seq):
+    return seq.translate(_COMP)[::-1]
+
 def make_read(fwd_tag, rev_tag, fwd_primer, rev_primer, amplicon):
-    rc_rev = str(Seq(rev_primer).reverse_complement())
-    rc_rev_tag = str(Seq(rev_tag).reverse_complement())
-    return fwd_tag + fwd_primer + amplicon + rc_rev + rc_rev_tag
+    return fwd_tag + fwd_primer + amplicon + rc(rev_primer) + rc(rev_tag)
 
 
 def write_fastq(path, reads):

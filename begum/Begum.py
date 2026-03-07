@@ -100,7 +100,7 @@ def parse_cl_arguments():
                               or merged sequences, it is the length of the \
                               sequence, and in case of paired end reads, it \
                               is the sum of the length of the 2 reads.",
-                              metavar="minLength", type=int, default=0,
+                              metavar="minLength", type=int, default=1,
                               required=False)
     filterParser.add_argument("-d", "--output_directory", help="Output \
                               directory", default=".", metavar="OutDirectory")
