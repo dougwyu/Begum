@@ -87,19 +87,19 @@ was used to modernise and extend the codebase across several sessions:
    dataset.
 
 4. **Tutorial and dataset.**  A 100,000-read synthetic dataset
-   (`test/generate_complex_dataset.py`) was generated to demonstrate every
+   (`tutorial/generate_complex_dataset.py`) was generated to demonstrate every
    sort outcome type (C/B/F/R/N, IUPAC primer matching, reverse-orientation
    reads) and every filter outcome (pass, fail propPCRs, fail minOccurrence,
-   fail minLength).
+   fail minLength).  The tutorial lives in `tutorial/`.
 
 5. **Repository cleanup.**  The repo was restructured to its current
-   three-directory layout (`begum/`, `begum-rs/`, `test/`), a root
+   four-directory layout (`begum/`, `begum-rs/`, `test/`, `tutorial/`), a root
    `.gitignore` was added, and a pre-existing bug in the Python `filter`
    default for `--minLength` was fixed.
 
 ## Documentation
 
-See `test/tutorial/README.md` for a full walkthrough covering all input file
+See `tutorial/README.md` for a full walkthrough covering all input file
 formats, every command-line argument, output file formats, and a 100,000-read
 example dataset that demonstrates all sort and filter outcomes.
 
@@ -118,5 +118,6 @@ cargo test --manifest-path begum-rs/Cargo.toml
 ```
 begum/       Python 3 source
 begum-rs/    Rust source
-test/        Tests and tutorial dataset
+test/        Developer and CI tests
+tutorial/    Tutorial dataset and walkthrough
 ```

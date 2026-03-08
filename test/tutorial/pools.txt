@@ -1,2 +1,0 @@
-Pool1 /Users/douglasyu/Downloads/Cowork/Begum/test/tutorial/reads_pool1.fastq.gz
-Pool2 /Users/douglasyu/Downloads/Cowork/Begum/test/tutorial/reads_pool2.fastq.gz

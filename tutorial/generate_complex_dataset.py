@@ -3,18 +3,18 @@
 
 Generate 100,000 synthetic FASTQ reads across 2 pools that demonstrate every
 sort and filter outcome.  Outputs all input files needed to run Begum in the
-test/tutorial/ directory.
+tutorial/ directory (repo root).
 
 Usage:
-    python3 test/generate_complex_dataset.py
+    python3 tutorial/generate_complex_dataset.py
 
-Outputs (relative to repo root):
-    test/tutorial/reads_pool1.fastq   (50,000 reads)
-    test/tutorial/reads_pool2.fastq   (50,000 reads)
-    test/tutorial/primers.txt
-    test/tutorial/tags.txt
-    test/tutorial/samples.txt
-    test/tutorial/pools.txt
+Outputs (in the tutorial/ directory):
+    tutorial/reads_pool1.fastq   (50,000 reads)
+    tutorial/reads_pool2.fastq   (50,000 reads)
+    tutorial/primers.txt
+    tutorial/tags.txt
+    tutorial/samples.txt
+    tutorial/pools.txt
 """
 
 import gzip
@@ -280,7 +280,7 @@ random.shuffle(pool2_reads)
 # Write output files
 # ---------------------------------------------------------------------------
 
-OUT = Path(__file__).parent / "tutorial"
+OUT = Path(__file__).parent
 OUT.mkdir(exist_ok=True)
 
 write_fastq(OUT / "reads_pool1.fastq.gz", pool1_reads)

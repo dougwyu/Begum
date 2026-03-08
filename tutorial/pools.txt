@@ -1,0 +1,2 @@
+Pool1 /Users/douglasyu/src/Cowork/Begum/tutorial/reads_pool1.fastq.gz
+Pool2 /Users/douglasyu/src/Cowork/Begum/tutorial/reads_pool2.fastq.gz
